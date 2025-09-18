@@ -1,0 +1,111 @@
+---
+- hosts: all
+  become: yes
+  tasks:
+  - name: Update apt and upgrade packages
+    apt:
+      update_cache: yes
+      upgrade: dist
+      force_apt_get: yes
+    
+  - name: Install libgomp1
+    apt:
+      name: libgomp1
+      state: present
+  
+  - name: Set Codex version and architecture
+    set_fact:
+      version: "v0.1.4"
+      platform: "{{ ansible_system | lower }}"
+      architecture: "{{ 'amd64' if ansible_architecture == 'x86_64' else 'arm64' }}"
+  
+  - name: Download Codex binary
+    get_url:
+      url: "https://github.com/codex-storage/nim-codex/releases/download/{{ version }}/codex-{{ version }}-{{ platform }}-{{ architecture }}.tar.gz"
+      dest: "/tmp/codex-{{ version }}-{{ platform }}-{{ architecture }}.tar.gz"
+  
+  - name: Download Codex checksum
+    get_url:
+      url: "https://github.com/codex-storage/nim-codex/releases/download/{{ version }}/codex-{{ version }}-{{ platform }}-{{ architecture }}.tar.gz.sha256"
+      dest: "/tmp/codex-{{ version }}-{{ platform }}-{{ architecture }}.tar.gz.sha256"
+  
+  - name: Extract Codex binaries
+    unarchive:
+      src: "/tmp/codex-{{ version }}-{{ platform }}-{{ architecture }}.tar.gz"
+      dest: "/usr/local/bin/"
+      remote_src: yes
+  
+  - name: Install Codex binary
+    command: mv /usr/local/bin/codex-{{ version }}-{{ platform }}-{{ architecture }} /usr/local/bin/codex
+    args:
+      creates: /usr/local/bin/codex
+
+  - name: Clone Codex testnet starter repo
+    git:
+      repo: https://github.com/codex-storage/codex-testnet-starter.git
+      dest: /root/codex/codex-testnet-starter
+  
+  - name: Run generate.sh script
+    command: ./generate.sh
+    args:
+      chdir: /root/codex/codex-testnet-starter/scripts/
+
+  - name: Set permissions for eth.key
+    file:
+      path: /root/codex/codex-testnet-starter/scripts/eth.key
+      mode: '0600'
+
+  - name: Create codex_node systemd service
+    copy:
+      dest: /etc/systemd/system/codex_node.service
+      content: |
+        [Unit]
+        Description=Codex_node
+        After=network.target
+        [Service]
+        WorkingDirectory=/root/codex/
+        Type=simple
+        ExecStart=/usr/local/bin/codex --bootstrap-node=spr:CiUIAhIhAiJvIcA_ZwPZ9ugVKDbmqwhJZaig5zKyLiuaicRcCGqLEgIDARo8CicAJQgCEiECIm8hwD9nA9n26BUoNuarCEllqKDnMrIuK5qJxFwIaosQ3d6esAYaCwoJBJ_f8zKRAnU6KkYwRAIgM0MvWNJL296kJ9gWvfatfmVvT-A7O2s8Mxp8l9c8EW0CIC-h-H-jBVSgFjg3Eny2u33qF7BDnWFzo7fGfZ7_qc9P \
+        --nat={{ ansible_default_ipv4.address }} \
+        --listen-addrs="/ip4/0.0.0.0/tcp/8070" \
+        --disc-port=8090 \
+        persistence \
+        --data-dir=/root/codex_datadir \
+        --api-cors-origin="*" \
+        --eth-private-key=/root/codex/codex-testnet-starter/scripts/eth.key \
+        --eth-provider=https://rpc.testnet.codex.storage \
+        --marketplace-address=0xCDef8d6884557be4F68dC265b6bB2E3e52a6C9d6
+        ExecStop=/bin/kill -SIGINT $MAINPID
+        Restart=always
+        RestartSec=5
+        TimeoutSec=180
+        LimitNOFILE=16384
+        StartLimitInterval=5
+        [Install]
+        WantedBy=multi-user.target
+  
+  - name: Reload systemd daemon
+    command: systemctl daemon-reload
+  
+  - name: Start Codex node service
+    systemd:
+      name: codex_node
+      state: started
+      enabled: yes
+
+  - name: Display eth.key content
+    command: cat /root/codex/codex-testnet-starter/scripts/eth.key
+    register: eth_key_output
+
+  - name: Show eth.key content
+    debug:
+      msg: "{{ eth_key_output.stdout }}"
+
+  - name: Display eth.address content
+    command: cat /root/codex/codex-testnet-starter/scripts/eth.address
+    register: eth_address_output
+
+  - name: Show eth.address content
+    debug:
+      msg: "{{ eth_address_output.stdout }}"
+
