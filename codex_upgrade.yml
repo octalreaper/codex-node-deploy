@@ -1,0 +1,37 @@
+---
+- name: Upgrade Codex to v0.1.6
+  hosts: all
+  tasks:
+    - name: Download the Codex archive
+      get_url:
+        url: https://github.com/codex-storage/nim-codex/releases/download/v0.1.6/codex-v0.1.6-linux-amd64.tar.gz
+        dest: /tmp/codex-v0.1.6-linux-amd64.tar.gz
+
+    - name: Extract the Codex archive
+      unarchive:
+        src: /tmp/codex-v0.1.6-linux-amd64.tar.gz
+        dest: /tmp/
+        remote_src: yes
+
+    - name: Replace the existing codex binary
+      copy:
+        src: /tmp/codex-v0.1.6-linux-amd64
+        dest: /usr/local/bin/codex
+        mode: '0755'
+        force: yes
+        remote_src: yes
+
+    - name: Restart the codex_node service
+      systemd:
+        name: codex_node
+        state: restarted
+
+    - name: Remove the downloaded tar.gz file
+      file:
+        path: /tmp/codex-v0.1.6-linux-amd64.tar.gz
+        state: absent
+
+    - name: Remove the extracted codex binary
+      file:
+        path: /tmp/codex-v0.1.6-linux-amd64
+        state: absent
